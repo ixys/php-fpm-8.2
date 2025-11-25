@@ -1,0 +1,89 @@
+name: Build & Push Docker (Scaleway + GHCR)
+
+on:
+  push:
+    branches:
+      - master
+      - develop
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    env:
+      IMAGE_NAME: ${{ github.event.repository.name }}
+      REGISTRY_SCW: rg.fr-par.scw.cloud/registry-ixys-dev
+      REGISTRY_GHCR: ghcr.io/${{ github.repository_owner }}
+
+    permissions:
+      contents: read
+      packages: write   # ⬅ nécessaire pour publier sur GHCR
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---------------------------
+      # LOGIN SCW
+      # ---------------------------
+      - name: Log in to Scaleway Container Registry
+        run: |
+          echo "${{ secrets.SCW_SECRET_KEY }}" \
+            | docker login $REGISTRY_SCW -u "nologin" --password-stdin
+
+      # ---------------------------
+      # LOGIN GHCR
+      # ---------------------------
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build & Push Docker images
+        env:
+          GIT_BRANCH: ${{ github.ref_name }}
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          # Slug branch
+          BRANCH_SLUG=$(echo "$GIT_BRANCH" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed 's/[^a-z0-9_.-]/-/g')
+
+          # ---------------------------
+          # SCW IMAGES
+          # ---------------------------
+          IMAGE_SCW="$REGISTRY_SCW/$IMAGE_NAME"
+          TAG_SCW_BUILD="${IMAGE_SCW}:${BRANCH_SLUG}_${GIT_SHA}"
+          TAG_SCW_BRANCH="${IMAGE_SCW}:${BRANCH_SLUG}"
+          TAG_SCW_LATEST="${IMAGE_SCW}:latest"
+
+          # ---------------------------
+          # GHCR IMAGES
+          # ---------------------------
+          IMAGE_GHCR="$REGISTRY_GHCR/$IMAGE_NAME"
+          TAG_GHCR_BUILD="${IMAGE_GHCR}:${BRANCH_SLUG}_${GIT_SHA}"
+          TAG_GHCR_BRANCH="${IMAGE_GHCR}:${BRANCH_SLUG}"
+          TAG_GHCR_LATEST="${IMAGE_GHCR}:latest"
+
+          # Optional cache
+          docker pull "$TAG_SCW_LATEST" || true
+          docker pull "$TAG_GHCR_LATEST" || true
+
+          # Build multi registry
+          docker build --pull \
+            --cache-from "$TAG_SCW_LATEST" \
+            --cache-from "$TAG_GHCR_LATEST" \
+            -t "$TAG_SCW_BUILD" \
+            -t "$TAG_SCW_BRANCH" \
+            -t "$TAG_SCW_LATEST" \
+            -t "$TAG_GHCR_BUILD" \
+            -t "$TAG_GHCR_BRANCH" \
+            -t "$TAG_GHCR_LATEST" \
+            .
+
+          # Push SCW
+          docker push "$IMAGE_SCW" --all-tags
+
+          # Push GHCR
+          docker push "$IMAGE_GHCR" --all-tags
