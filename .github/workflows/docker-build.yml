@@ -22,8 +22,6 @@ jobs:
       IMAGE_NAME: ${{ github.event.repository.name }}
       REGISTRY_SCW: rg.fr-par.scw.cloud/registry-ixys-dev
       REGISTRY_GHCR: ghcr.io/${{ github.repository_owner }}
-      # "true" sur push, "false" sur PR → utilisé dans le script bash
-      PUSH_IMAGES: ${{ github.event_name == 'push' }}
 
       # On ne push que :
       # - sur push vers main ou develop
@@ -90,6 +88,7 @@ jobs:
           # ---------------------------
           # TAGGING COMMON
           # ---------------------------
+          # FULL
           TAG_FULL_SCW_BUILD="${IMAGE_SCW}:${BRANCH_SLUG}_${GIT_SHA}"
           TAG_FULL_SCW_BRANCH="${IMAGE_SCW}:${BRANCH_SLUG}"
           TAG_FULL_SCW_LATEST="${IMAGE_SCW}:latest"
@@ -98,6 +97,7 @@ jobs:
           TAG_FULL_GHCR_BRANCH="${IMAGE_GHCR}:${BRANCH_SLUG}"
           TAG_FULL_GHCR_LATEST="${IMAGE_GHCR}:latest"
 
+          # SLIM
           TAG_SLIM_SCW_BUILD="${IMAGE_SCW}:${BRANCH_SLUG}_${GIT_SHA}-slim"
           TAG_SLIM_SCW_BRANCH="${IMAGE_SCW}:${BRANCH_SLUG}-slim"
           TAG_SLIM_SCW_LATEST="${IMAGE_SCW}:slim"
