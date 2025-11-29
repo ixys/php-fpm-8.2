@@ -41,50 +41,92 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" \
             | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build & Push Docker images
+      - name: Build & Push Docker images (full + slim)
         env:
           GIT_BRANCH: ${{ github.ref_name }}
           GIT_SHA: ${{ github.sha }}
         run: |
+          # ---------------------------
           # Slug branch
+          # ---------------------------
           BRANCH_SLUG=$(echo "$GIT_BRANCH" \
             | tr '[:upper:]' '[:lower:]' \
             | sed 's/[^a-z0-9_.-]/-/g')
 
+          echo "Branch slug: $BRANCH_SLUG"
+          echo "Commit SHA: $GIT_SHA"
+
           # ---------------------------
-          # SCW IMAGES
+          # Base images
           # ---------------------------
           IMAGE_SCW="$REGISTRY_SCW/$IMAGE_NAME"
-          TAG_SCW_BUILD="${IMAGE_SCW}:${BRANCH_SLUG}_${GIT_SHA}"
-          TAG_SCW_BRANCH="${IMAGE_SCW}:${BRANCH_SLUG}"
-          TAG_SCW_LATEST="${IMAGE_SCW}:latest"
+          IMAGE_GHCR="$REGISTRY_GHCR/$IMAGE_NAME"
 
           # ---------------------------
-          # GHCR IMAGES
+          # TAGGING COMMON
           # ---------------------------
-          IMAGE_GHCR="$REGISTRY_GHCR/$IMAGE_NAME"
-          TAG_GHCR_BUILD="${IMAGE_GHCR}:${BRANCH_SLUG}_${GIT_SHA}"
-          TAG_GHCR_BRANCH="${IMAGE_GHCR}:${BRANCH_SLUG}"
-          TAG_GHCR_LATEST="${IMAGE_GHCR}:latest"
+          # FULL
+          TAG_FULL_SCW_BUILD="${IMAGE_SCW}:${BRANCH_SLUG}_${GIT_SHA}"
+          TAG_FULL_SCW_BRANCH="${IMAGE_SCW}:${BRANCH_SLUG}"
+          TAG_FULL_SCW_LATEST="${IMAGE_SCW}:latest"
+
+          TAG_FULL_GHCR_BUILD="${IMAGE_GHCR}:${BRANCH_SLUG}_${GIT_SHA}"
+          TAG_FULL_GHCR_BRANCH="${IMAGE_GHCR}:${BRANCH_SLUG}"
+          TAG_FULL_GHCR_LATEST="${IMAGE_GHCR}:latest"
+
+          # SLIM
+          TAG_SLIM_SCW_BUILD="${IMAGE_SCW}:${BRANCH_SLUG}_${GIT_SHA}-slim"
+          TAG_SLIM_SCW_BRANCH="${IMAGE_SCW}:${BRANCH_SLUG}-slim"
+          TAG_SLIM_SCW_LATEST="${IMAGE_SCW}:slim"
+
+          TAG_SLIM_GHCR_BUILD="${IMAGE_GHCR}:${BRANCH_SLUG}_${GIT_SHA}-slim"
+          TAG_SLIM_GHCR_BRANCH="${IMAGE_GHCR}:${BRANCH_SLUG}-slim"
+          TAG_SLIM_GHCR_LATEST="${IMAGE_GHCR}:slim"
 
           # Optional cache
-          docker pull "$TAG_SCW_LATEST" || true
-          docker pull "$TAG_GHCR_LATEST" || true
+          docker pull "$TAG_FULL_SCW_LATEST" || true
+          docker pull "$TAG_FULL_GHCR_LATEST" || true
+          docker pull "$TAG_SLIM_SCW_LATEST" || true
+          docker pull "$TAG_SLIM_GHCR_LATEST" || true
 
-          # Build multi registry
+          # ---------------------------
+          # BUILD FULL
+          # ---------------------------
+          echo "Building FULL image..."
           docker build --pull \
-            --cache-from "$TAG_SCW_LATEST" \
-            --cache-from "$TAG_GHCR_LATEST" \
-            -t "$TAG_SCW_BUILD" \
-            -t "$TAG_SCW_BRANCH" \
-            -t "$TAG_SCW_LATEST" \
-            -t "$TAG_GHCR_BUILD" \
-            -t "$TAG_GHCR_BRANCH" \
-            -t "$TAG_GHCR_LATEST" \
-            .
+            --cache-from "$TAG_FULL_SCW_LATEST" \
+            --cache-from "$TAG_FULL_GHCR_LATEST" \
+            -t "$TAG_FULL_SCW_BUILD" \
+            -t "$TAG_FULL_SCW_BRANCH" \
+            -t "$TAG_FULL_SCW_LATEST" \
+            -t "$TAG_FULL_GHCR_BUILD" \
+            -t "$TAG_FULL_GHCR_BRANCH" \
+            -t "$TAG_FULL_GHCR_LATEST" \
+            -f Dockerfile .
 
-          # Push SCW
+          # ---------------------------
+          # BUILD SLIM
+          # ---------------------------
+          echo "Building SLIM image..."
+          docker build --pull \
+            --cache-from "$TAG_SLIM_SCW_LATEST" \
+            --cache-from "$TAG_SLIM_GHCR_LATEST" \
+            -t "$TAG_SLIM_SCW_BUILD" \
+            -t "$TAG_SLIM_SCW_BRANCH" \
+            -t "$TAG_SLIM_SCW_LATEST" \
+            -t "$TAG_SLIM_GHCR_BUILD" \
+            -t "$TAG_SLIM_GHCR_BRANCH" \
+            -t "$TAG_SLIM_GHCR_LATEST" \
+            -f Dockerfile.slim .
+
+          # ---------------------------
+          # PUSH SCW
+          # ---------------------------
+          echo "Pushing images to SCW..."
           docker push "$IMAGE_SCW" --all-tags
 
-          # Push GHCR
+          # ---------------------------
+          # PUSH GHCR
+          # ---------------------------
+          echo "Pushing images to GHCR..."
           docker push "$IMAGE_GHCR" --all-tags

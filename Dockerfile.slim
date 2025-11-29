@@ -1,0 +1,128 @@
+FROM php:8.2-fpm-alpine
+
+# ------------------------------ Meta / Args ------------------------------
+ARG BUILD_DATE
+ARG VCS_REF
+ARG XDEBUG_VERSION
+
+LABEL maintainer="Julien SIMONCINI <julien@ixys.dev>" \
+      description="Container PHP 8.2 FPM based on Alpine with minimal runtime deps pour Laravel."
+
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+
+# ------------------------------ Doppler (optionnel mais conservé) ------------------------------
+RUN wget -q -t3 'https://packages.doppler.com/public/cli/rsa.8004D9FF50437357.key' \
+        -O /etc/apk/keys/cli@doppler-8004D9FF50437357.rsa.pub \
+    && echo 'https://packages.doppler.com/public/cli/alpine/any-version/main' \
+        >> /etc/apk/repositories
+
+# ------------------------------ Runtime packages uniquement ------------------------------
+# - pas de node/npm, pas de make/g++, pas de vim/sudo etc.
+# - uniquement ce qui est utile à PHP/Laravel en prod
+RUN apk add --no-cache \
+        ca-certificates \
+        curl \
+        git \
+        bash \
+        icu-libs \
+        libpng \
+        libjpeg-turbo \
+        libwebp \
+        freetype \
+        libzip \
+        libxml2 \
+        oniguruma \
+        zlib \
+        doppler
+
+# ------------------------------ PHP extensions ------------------------------
+RUN apk add --no-cache --virtual .build-deps \
+        $PHPIZE_DEPS \
+        icu-dev \
+        libpng-dev \
+        libjpeg-turbo-dev \
+        libwebp-dev \
+        freetype-dev \
+        libzip-dev \
+        libxml2-dev \
+        oniguruma-dev \
+        zlib-dev \
+    \
+    # GD
+    && docker-php-ext-configure gd \
+        --with-jpeg \
+        --with-webp \
+        --with-freetype \
+    \
+    # Extensions de base pour Laravel
+    && docker-php-ext-install -j"$(nproc)" \
+        bcmath \
+        ctype \
+        exif \
+        gd \
+        intl \
+        mbstring \
+        pcntl \
+        pdo_mysql \
+        opcache \
+        zip \
+    \
+    # Redis via PECL
+    && pecl install redis \
+    && docker-php-ext-enable redis \
+    \
+    # Nettoyage build deps
+    && apk del .build-deps \
+    && rm -rf /var/cache/apk/* /tmp/*
+
+# ------------------------------ Minification binaire (light) ------------------------------
+# On allège un peu sans être trop bourrin
+RUN set -eux \
+    && find /usr/local/lib/php/extensions -type f -name '*.so' -print0 \
+       | xargs -0 -n1 strip --strip-unneeded 2>/dev/null || true
+
+# ------------------------------ Utilisateur / permissions ------------------------------
+RUN deluser --remove-home www-data || true \
+    && adduser -u 1000 -D www-data \
+    && rm -rf /var/www /usr/local/etc/php-fpm.d/* \
+    && mkdir -p /app /var/www/.composer \
+    && chown -R www-data:www-data /app /var/www/.composer
+
+WORKDIR /app
+
+# ------------------------------ PHP config ------------------------------
+RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+
+COPY config/base-* "$PHP_INI_DIR/conf.d/"
+COPY config/prod-* "$PHP_INI_DIR/conf.d/"
+
+# ------------------------------ PHP-FPM config ------------------------------
+COPY config/fpm/*.conf  /usr/local/etc/php-fpm.d/
+
+# ------------------------------ Scripts internes ------------------------------
+COPY scripts/*-base \
+     scripts/*-prod \
+     scripts/healthcheck-* \
+     scripts/command-loop \
+     /usr/local/bin/
+
+RUN chmod +x \
+      /usr/local/bin/*-base \
+      /usr/local/bin/*-prod \
+      /usr/local/bin/healthcheck-* \
+      /usr/local/bin/command-loop
+
+# ------------------------------ Composer ------------------------------
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+# ------------------------------ User / validation FPM ------------------------------
+USER www-data
+
+RUN php-fpm -t
+
+EXPOSE 9000
+
+HEALTHCHECK CMD ["healthcheck-liveness"]
+
+ENTRYPOINT ["entrypoint-prod"]
+CMD ["php-fpm"]
